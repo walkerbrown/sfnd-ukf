@@ -1,6 +1,8 @@
 #ifndef UKF_H
 #define UKF_H
 
+#include <iostream>
+
 #include "Eigen/Dense"
 #include "measurement_package.h"
 
@@ -92,6 +94,12 @@ class UKF {
 
   // Augmented state dimension
   int n_aug_;
+
+  // Number of sigma points
+  int n_sig_;
+
+  // Number of sigma points for augmented state
+  int n_sig_aug_;
 
   // Sigma point spreading parameter
   double lambda_;
