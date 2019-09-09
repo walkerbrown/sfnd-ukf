@@ -23,10 +23,10 @@ UKF::UKF() {
   P_ = MatrixXd::Identity(5, 5);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 3;  //  Maximum expected acceleration 6 m/s, then by half
+  std_a_ = 0.5;  //  Maximum expected acceleration 6 m/s, then by half
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.5;
+  std_yawdd_ = 0.05;
   
   /**
    * DO NOT MODIFY measurement noise values below.
@@ -49,7 +49,7 @@ UKF::UKF() {
   std_radrd_ = 0.3;
   
   /**
-   * End DO NOT MODIFY section for measurement noise values 
+   * End DO NOT MODIFY section for measurement noise values
    */
   
   n_x_ = 5;
@@ -57,6 +57,7 @@ UKF::UKF() {
   n_sig_ = 2 * n_aug_ + 1;
   weights_ = VectorXd(n_sig_);
   lambda_ = 3.0 - n_x_;
+
   Xsig_pred_ = MatrixXd(n_x_, n_sig_);
   Xsig_pred_.fill(0.0);
 
@@ -85,6 +86,7 @@ void UKF::InitializeUKF(MeasurementPackage meas_package) {
   // DEBUG NON-PORTABLE macOS for NaN
   // _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~_MM_MASK_INVALID);
 }
+
 
 // UKF prediction step, estimate the object's location at next timestep k+1
 void UKF::Prediction(double delta_t) {
@@ -133,7 +135,7 @@ void UKF::Prediction(double delta_t) {
     // Transform from the augmented to the original (n_x-dim) state space
     
     // Avoid division by zero
-    if (std::fabs(psid) > 0.0001) {
+    if (std::fabs(psid) > 0.001) {
       Xsig_pred_(0, i) = px + v / psid * (sin(psi + psid * dt) - sin(psi)) +
                         pow(dt, 2) / 2 * cos(psi) * nu_a;
       Xsig_pred_(1, i) = py + v / psid * (-cos(psi + psid * dt) + cos(psi)) +
@@ -189,7 +191,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
 void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   // STEP 4) Predict the measurement mean and covariance; calculate Kalman gain
-  // cout << "LASER Predicting the measurement mean and covariance; calculating Kalman gain" << endl; 
+  // cout << "Predicting the measurement mean and covariance; calculating Kalman gain" << endl; 
   
   VectorXd z = meas_package.raw_measurements_;
   int n_z = z.size(); // Measurement z is a 2x1 vector for lidar
@@ -204,7 +206,9 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   R << pow(std_laspx_, 2), 0,
        0, pow(std_laspy_, 2);
 
-  VectorXd z_pred = H * x_;  // Extract the px, py values from the state mean
+  VectorXd z_pred = VectorXd(n_z);
+  z_pred = x_.head(n_z); // Extract the px, py values from the state
+
   VectorXd y = z - z_pred;  // Calculate the residuals vector y
   MatrixXd Ht = H.transpose();
   MatrixXd S = H * P_ * Ht + R;
@@ -213,7 +217,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   MatrixXd K = PHt * Sinv;
 
   // STEP 5) Update the state, by applying the Kalman gain to the residual
-  // cout << "LASER Updating the state by applying the Kalman gain to the residual" << endl; 
+  // cout << "Updating the state by applying the Kalman gain to the residual" << endl; 
 
   MatrixXd I = MatrixXd::Identity(n_x_, n_x_);
 
@@ -231,7 +235,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   // STEP 4) Predict the measurement mean (z_pred) and innovation covariance (S)
-  // cout << "RADAR Predicting the measurement mean and covariance; calculating Kalman gain" << endl; 
+  // cout << "Predicting the measurement mean and covariance; calculating Kalman gain" << endl; 
   
   VectorXd z = meas_package.raw_measurements_;
   int n_z = z.size(); // Measurement z is a 3x1 vector for radar
@@ -251,7 +255,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
       double rho = sqrt(pow(px, 2) + pow(py, 2));
       double phi = std::atan2(py, px);
       double rhod = 0.0;
-      if (std::fabs(rho) > 0.0001) {
+      if (std::fabs(rho) > 1e-12) {
         rhod = (px * cos(psi) * v + py * sin(psi) * v) / rho; 
       }
 
@@ -273,6 +277,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   double std_rho2 = pow(std_radr_, 2);
   double std_phi2 = pow(std_radphi_, 2);
   double std_rhod2 = pow(std_radrd_, 2);
+  double mod_angle = 0.0;
 
   R << std_rho2, 0, 0,
        0, std_phi2, 0,
@@ -280,10 +285,11 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   for (int i = 0; i < n_sig_; i++) {
     VectorXd z_diff = Zsig.col(i) - z_pred;
-    if (z_diff(1) > M_PI) {
-      z_diff(1) = 2 * M_PI - std::fmod(z_diff(1), 2 * M_PI);
+    mod_angle = std::fmod(z_diff(1), 2 * M_PI);
+    if (mod_angle > M_PI) {
+      z_diff(1) = mod_angle - 2 * M_PI;
     } else if (z_diff(1) < -M_PI) {
-      z_diff(1) = 2 * M_PI + std::fmod(z_diff(1), 2 * M_PI);
+      z_diff(1) = mod_angle + 2 * M_PI;
     }
 
     S = S + weights_(i) * z_diff * z_diff.transpose();
@@ -292,7 +298,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   S = S + R;
 
   // STEP 5) Update the state, by applying the Kalman gain to the residual
-  // cout << "RADAR Updating the state by applying the Kalman gain to the residual" << endl; 
+  // cout << "Updating the state by applying the Kalman gain to the residual" << endl; 
 
   // Calculate the cross correlation matrix Tc
   MatrixXd Tc = MatrixXd(n_x_, n_z);
@@ -300,17 +306,19 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   for (int i = 0; i < n_sig_; i++) {
     VectorXd z_diff = Zsig.col(i) - z_pred;
-    if (z_diff(1) > M_PI) {
-      z_diff(1) = 2 * M_PI - std::fmod(z_diff(1), 2 * M_PI);
+    mod_angle = std::fmod(z_diff(1), 2 * M_PI);
+    if (mod_angle > M_PI) {
+      z_diff(1) = mod_angle - 2 * M_PI;
     } else if (z_diff(1) < -M_PI) {
-      z_diff(1) = 2 * M_PI + std::fmod(z_diff(1), 2 * M_PI);
+      z_diff(1) = mod_angle + 2 * M_PI;
     }
 
     VectorXd x_diff = Xsig_pred_.col(i) - x_;
-    if (x_diff(3) > M_PI) {
-      x_diff(3) = 2 * M_PI - std::fmod(x_diff(3), 2 * M_PI);
+    mod_angle = std::fmod(x_diff(3), 2 * M_PI);
+    if (mod_angle > M_PI) {
+      x_diff(3) = mod_angle - 2 * M_PI;
     } else if (x_diff(3) < -M_PI) {
-      x_diff(3) = 2 * M_PI + std::fmod(x_diff(3), 2 * M_PI);
+      x_diff(3) = mod_angle + 2 * M_PI;
     }
 
     Tc += weights_(i) * x_diff * z_diff.transpose();
@@ -320,11 +328,13 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   MatrixXd K = MatrixXd(n_x_, n_z); 
   MatrixXd Sinv = S.inverse();
   VectorXd residuals = z - z_pred;
-  if (residuals(1) > M_PI) {
-    residuals(1) = 2 * M_PI - std::fmod(residuals(1), 2 * M_PI);
+  mod_angle = std::fmod(residuals(1), 2 * M_PI);
+  if (mod_angle > M_PI) {
+    residuals(1) = mod_angle - 2 * M_PI;
   } else if (residuals(1) < -M_PI) {
-    residuals(1) = 2 * M_PI + std::fmod(residuals(1), 2 * M_PI);
+    residuals(1) = mod_angle + 2 * M_PI;
   }
+
   K = Tc * Sinv;
   
   // Update the mean and covariance matrix
