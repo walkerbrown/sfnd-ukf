@@ -29,13 +29,13 @@ UKF::UKF() {
   x_ = VectorXd(5);
 
   // initial covariance matrix
-  P_ = 0.5 * MatrixXd::Identity(5, 5);
+  P_ = MatrixXd::Identity(5, 5);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 0.5;  //  Maximum expected acceleration 6 m/s, then by half
+  std_a_ = 3.0;  //  Maximum expected acceleration 6 m/s, then by half
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.5;
+  std_yawdd_ = 0.6;
   
   /**
    * DO NOT MODIFY measurement noise values below.
@@ -167,25 +167,33 @@ void UKF::Prediction(double delta_t) {
 
   // STEP 3) Predict the next state: mean and covariance matrices
   // cout << "Predicting the next state's mean and covariance" << endl;
-  //
-  // // Predict the mean state
-  // for (int i = 0; i < n_sig_; i++) {
-  //   x_out = x_in + weights_(i) * Xsig_pred_.col(i);
-  // }
-  //
-  // // Predict the covariance matrix
-  // for (int i = 0; i < n_sig_; i++) {
-  //   P_out = P_in + weights_(i) *
-  //           (Xsig_pred_.col(i) - x_in) *
-  //           (Xsig_pred_.col(i) - x_in).transpose();
-  // }
+  
+  VectorXd x = VectorXd(n_x_);
+  x.fill(0.0);
+  MatrixXd P = MatrixXd(n_x_, n_x_);
+  P.fill(0.0);
+
+  // Predict the mean state
+  for (int i = 0; i < n_sig_; i++) {
+    x = x + weights_(i) * Xsig_pred_.col(i);
+  }
+  
+  // Predict the covariance matrix
+  for (int i = 0; i < n_sig_; i++) {
+    P = P + weights_(i) *
+            (Xsig_pred_.col(i) - x_) *
+            (Xsig_pred_.col(i) - x_).transpose();
+  }
+
+  x_ = x;
+  P_ = P;
 }
 
 
 // Branch to a lidar or radar measurement update, depending on sensor type
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   if (!is_initialized_) {
-    // For the initial measurment, skip the prediction step
+    // For the initial measurement, skip the prediction step
     InitializeUKF(meas_package);
     
     if (MeasurementPackage::SensorType::LASER == meas_package.sensor_type_) {
@@ -250,8 +258,8 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   P_ = (I - K * H) * P_;
 
   // Calculate normalized innovation squared (NIS) for tuning
-  double NIS = y.transpose() * Sinv * y;
-  cout << "Lidar NIS (2-df X^2, 95% < 5.991) = " << NIS << endl; 
+  // double NIS = y.transpose() * Sinv * y;
+  // cout << "Lidar NIS (2-df X^2, 95% < 5.991) = " << NIS << endl; 
 }
 
 
@@ -347,6 +355,6 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   P_ = P_ - K * S * Kt;
 
   // Calculate normalized innovation squared (NIS) for tuning
-  double NIS = residuals.transpose() * Sinv * residuals;
-  cout << "Radar NIS (3-df X^2, 95% < 7.815) = " << NIS << endl;
+  // double NIS = residuals.transpose() * Sinv * residuals;
+  // cout << "Radar NIS (3-df X^2, 95% < 7.815) = " << NIS << endl;
 }
