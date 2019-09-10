@@ -15,7 +15,7 @@ Note that the future projection may swing a bit and take some time to stabilize 
 ## Overview of the UKF algorithm
 The typical Kalman filter is a Bayesian filter, which works well if the variables are normally distributed and have linear transitions at each time step. The _unscented_ Kalman filter, however, allows for non-linear transitions. It accomplishes this by sampling several points (sigma points) distributed by a spreading factor `lambda` about the mean state estimate.
 
-In the code comments, I've marked out the following steps which outline the UKF algorithm:
+In the [code comments](src/ukf.cpp), I've marked out the following steps which outline the UKF algorithm:
 
 1. Generate sigma (sampling) points in the augmented state space
 2. Predict the motion of each sigma point, according to the CTRV model
