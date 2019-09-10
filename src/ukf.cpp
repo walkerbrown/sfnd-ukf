@@ -5,6 +5,15 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::cout;
 using std::endl;
+using std::pow;
+
+
+// Given a yaw angle (psi) in rad, returns the equivalent in the range [-pi, pi)
+double bounded_angle(double angle) {
+  angle = std::fmod(angle + M_PI, 2 * M_PI);  // angle in rad
+  if (angle < 0) angle += 2 * M_PI;
+  return angle - M_PI;
+}
 
 
 // Construct the unscented Kalman filter (UKF). Please note the motion model
@@ -20,13 +29,13 @@ UKF::UKF() {
   x_ = VectorXd(5);
 
   // initial covariance matrix
-  P_ = MatrixXd::Identity(5, 5);
+  P_ = 0.5 * MatrixXd::Identity(5, 5);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
   std_a_ = 0.5;  //  Maximum expected acceleration 6 m/s, then by half
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.05;
+  std_yawdd_ = 0.5;
   
   /**
    * DO NOT MODIFY measurement noise values below.
@@ -81,6 +90,8 @@ void UKF::InitializeUKF(MeasurementPackage meas_package) {
   x_.fill(0.0);
   x_.head(2) << meas_package.raw_measurements_;
 
+  time_us_ = meas_package.timestamp_;
+
   is_initialized_ = true;
 
   // DEBUG NON-PORTABLE macOS for NaN
@@ -95,6 +106,7 @@ void UKF::Prediction(double delta_t) {
   // cout << "Generating sigma points in the augmented state space" << endl;
   
   MatrixXd Xsig = MatrixXd(n_aug_, n_sig_);
+  Xsig.fill(0.0);
   VectorXd x_aug = VectorXd(n_aug_);
   x_aug.fill(0.0);
   x_aug.head(n_x_) = x_;  // Augment the mean state
@@ -121,6 +133,7 @@ void UKF::Prediction(double delta_t) {
   // cout << "Predicting the motion of each sigma point" << endl; 
 
   double dt = delta_t;
+  Xsig_pred_.fill(0.0);
 
   // Loop over each sigma point, transforming back to the original state space
   for (int i = 0; i < n_sig_; i++) {
@@ -141,8 +154,10 @@ void UKF::Prediction(double delta_t) {
       Xsig_pred_(1, i) = py + v / psid * (-cos(psi + psid * dt) + cos(psi)) +
                         pow(dt, 2) / 2 * sin(psi) * nu_a;
     } else {
-      Xsig_pred_(0, i) = px + v * dt * cos(psi);
-      Xsig_pred_(1, i) = py + v * dt * sin(psi);
+      Xsig_pred_(0, i) = px + v * dt * cos(psi) +
+                         pow(dt, 2) / 2 * cos(psi) * nu_a;
+      Xsig_pred_(1, i) = py + v * dt * sin(psi) +
+                         pow(dt, 2) / 2 * sin(psi) * nu_a;
     }
     
     Xsig_pred_(2, i) = v + 0 + dt * nu_a;
@@ -152,37 +167,46 @@ void UKF::Prediction(double delta_t) {
 
   // STEP 3) Predict the next state: mean and covariance matrices
   // cout << "Predicting the next state's mean and covariance" << endl;
-
-  // Predict the mean state
-  for (int i = 0; i < n_sig_; i++) {
-    x_ = x_ + weights_(i) * Xsig_pred_.col(i);
-  }
-
-  // Predict the covariance matrix
-  for (int i = 0; i < n_sig_; i++) {
-    P_ = P_ + weights_(i) *
-            (Xsig_pred_.col(i) - x_) *
-            (Xsig_pred_.col(i) - x_).transpose();
-  }
+  //
+  // // Predict the mean state
+  // for (int i = 0; i < n_sig_; i++) {
+  //   x_out = x_in + weights_(i) * Xsig_pred_.col(i);
+  // }
+  //
+  // // Predict the covariance matrix
+  // for (int i = 0; i < n_sig_; i++) {
+  //   P_out = P_in + weights_(i) *
+  //           (Xsig_pred_.col(i) - x_in) *
+  //           (Xsig_pred_.col(i) - x_in).transpose();
+  // }
 }
 
 
 // Branch to a lidar or radar measurement update, depending on sensor type
 void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   if (!is_initialized_) {
+    // For the initial measurment, skip the prediction step
     InitializeUKF(meas_package);
+    
+    if (MeasurementPackage::SensorType::LASER == meas_package.sensor_type_) {
+      UpdateLidar(meas_package);
+    }
+    else if (MeasurementPackage::SensorType::RADAR == meas_package.sensor_type_) {
+      UpdateRadar(meas_package);
+    }
   }
-
-  if (MeasurementPackage::SensorType::LASER == meas_package.sensor_type_) {
-    UpdateLidar(meas_package);
-  }
-  else if (MeasurementPackage::SensorType::RADAR == meas_package.sensor_type_) {
-    UpdateRadar(meas_package);
-  }
-  // Handle invalid sensor types by logging an error and skipping that update
   else {
-    cout << "UKF::ProcessMeasurement() ERROR: Invalid sensor type "
-              << meas_package.sensor_type_ << endl;
+    // On each subsequent measurement, trigger a full prediction/update cycle
+    double delta_t = (meas_package.timestamp_ - time_us_) / 1e6;
+    time_us_ = meas_package.timestamp_;
+    Prediction(delta_t);
+
+    if (MeasurementPackage::SensorType::LASER == meas_package.sensor_type_) {
+      UpdateLidar(meas_package);
+    }
+    else if (MeasurementPackage::SensorType::RADAR == meas_package.sensor_type_) {
+      UpdateRadar(meas_package);
+    }
   }
 }
 
@@ -255,7 +279,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
       double rho = sqrt(pow(px, 2) + pow(py, 2));
       double phi = std::atan2(py, px);
       double rhod = 0.0;
-      if (std::fabs(rho) > 1e-12) {
+      if (std::fabs(rho) > 0.001) {
         rhod = (px * cos(psi) * v + py * sin(psi) * v) / rho; 
       }
 
@@ -285,12 +309,7 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   for (int i = 0; i < n_sig_; i++) {
     VectorXd z_diff = Zsig.col(i) - z_pred;
-    mod_angle = std::fmod(z_diff(1), 2 * M_PI);
-    if (mod_angle > M_PI) {
-      z_diff(1) = mod_angle - 2 * M_PI;
-    } else if (z_diff(1) < -M_PI) {
-      z_diff(1) = mod_angle + 2 * M_PI;
-    }
+    z_diff(1) = bounded_angle(z_diff(1));
 
     S = S + weights_(i) * z_diff * z_diff.transpose();
   }
@@ -306,20 +325,10 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
   for (int i = 0; i < n_sig_; i++) {
     VectorXd z_diff = Zsig.col(i) - z_pred;
-    mod_angle = std::fmod(z_diff(1), 2 * M_PI);
-    if (mod_angle > M_PI) {
-      z_diff(1) = mod_angle - 2 * M_PI;
-    } else if (z_diff(1) < -M_PI) {
-      z_diff(1) = mod_angle + 2 * M_PI;
-    }
+    z_diff(1) = bounded_angle(z_diff(1));
 
     VectorXd x_diff = Xsig_pred_.col(i) - x_;
-    mod_angle = std::fmod(x_diff(3), 2 * M_PI);
-    if (mod_angle > M_PI) {
-      x_diff(3) = mod_angle - 2 * M_PI;
-    } else if (x_diff(3) < -M_PI) {
-      x_diff(3) = mod_angle + 2 * M_PI;
-    }
+    x_diff(3) = bounded_angle(x_diff(3));
 
     Tc += weights_(i) * x_diff * z_diff.transpose();
   }
@@ -328,18 +337,14 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   MatrixXd K = MatrixXd(n_x_, n_z); 
   MatrixXd Sinv = S.inverse();
   VectorXd residuals = z - z_pred;
-  mod_angle = std::fmod(residuals(1), 2 * M_PI);
-  if (mod_angle > M_PI) {
-    residuals(1) = mod_angle - 2 * M_PI;
-  } else if (residuals(1) < -M_PI) {
-    residuals(1) = mod_angle + 2 * M_PI;
-  }
+  residuals(1) = bounded_angle(residuals(1));
 
   K = Tc * Sinv;
-  
+
   // Update the mean and covariance matrix
   x_ = x_ + K * residuals;
-  P_ = P_ - K * S * K.transpose();
+  MatrixXd Kt = K.transpose();
+  P_ = P_ - K * S * Kt;
 
   // Calculate normalized innovation squared (NIS) for tuning
   double NIS = residuals.transpose() * Sinv * residuals;
