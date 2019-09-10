@@ -1,6 +1,6 @@
 # Unscented Kalman Filter
 
-<img src="media/ukf_fast.gif" width=700 />
+<p align="center"><img src="media/ukf_fast.gif" width=700 /></p>
 
 This is the final project in Udacity's Sensor Fusion Nanodegree. 
 
@@ -13,15 +13,15 @@ The scene above is centered on the green ego car while the target cars to track 
 Note that the future projection may swing a bit and take some time to stabilize after a lane change. This is due to the assumptions implicit in the constant turn rate and velocity (CTRV) motion model implemented here.
 
 ## Overview of the UKF algorithm
-The typical Kalman filter is a Bayesian filter, which works well if the variables are normally distributed and have linear transitions at each time step. The _unscented_ Kalman filter, however, allows for non-linear transitions. It accomplishes this by sampling several points (sigma points) distributed by a spreading factor (lambda) about the mean state estimate.
+The typical Kalman filter is a Bayesian filter, which works well if the variables are normally distributed and have linear transitions at each time step. The _unscented_ Kalman filter, however, allows for non-linear transitions. It accomplishes this by sampling several points (sigma points) distributed by a spreading factor `lambda` about the mean state estimate.
 
 In the code comments, I've marked out the following steps which outline the UKF algorithm:
 
 1. Generate sigma (sampling) points in the augmented state space
 2. Predict the motion of each sigma point, according to the CTRV model
 3. Predict the next state: both mean and covariance matrices
-4. - (Lidar) Predict the measurement mean and covariance; calculate the Kalman gain (K)
-   - (Radar) Predict the measurement mean (z_pred) and innovation covariance (S)
+4. - (Lidar) Predict the measurement mean and covariance; calculate the Kalman gain `K`
+   - (Radar) Predict the measurement mean `z_pred` and innovation covariance `S`
 5. Update the state, by applying the Kalman gain to the residual (distance between the measurement and prediction)
 6. Rinse and repeat!
 
